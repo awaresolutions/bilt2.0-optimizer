@@ -1,89 +1,78 @@
 import streamlit as st
+import pandas as pd
 
 def calculate_rewards():
-    st.set_page_config(page_title="Bilt 2.0 Rewards Calculator", layout="wide")
-    st.title("💳 Bilt 2.0 Rewards Calculator (Updated Conversion)")
+    st.set_page_config(page_title="Bilt 2.0: Before & After Conversion", layout="wide")
+    st.title("💳 Bilt 2.0 Rewards Dashboard")
+    st.write("Compare point yields before and after the manual housing unlock logic.")
     
     # --- Sidebar Inputs ---
-    st.sidebar.header("Monthly Spending")
-    rent_mortgage = st.sidebar.number_input("Rent/Mortgage Payment ($)", min_value=0, value=2500, step=100)
-    dining = st.sidebar.number_input("Dining ($)", min_value=0, value=600, step=50)
-    groceries = st.sidebar.number_input("Groceries ($)", min_value=0, value=500, step=50)
-    travel = st.sidebar.number_input("Travel ($)", min_value=0, value=300, step=50)
-    other = st.sidebar.number_input("Other Spend ($)", min_value=0, value=600, step=50)
+    st.sidebar.header("Monthly Spend Profile")
+    rent = st.sidebar.number_input("Monthly Rent/Mortgage ($)", min_value=0, value=2500)
+    dining = st.sidebar.number_input("Dining ($)", min_value=0, value=600)
+    groceries = st.sidebar.number_input("Groceries ($)", min_value=0, value=500)
+    travel = st.sidebar.number_input("Travel ($)", min_value=0, value=300)
+    other = st.sidebar.number_input("Other Spend ($)", min_value=0, value=600)
 
-    st.sidebar.header("Strategy Selection")
     reward_strategy = st.sidebar.selectbox(
         "Select Reward Strategy",
         ["Housing-only (Tiered Points)", "Flexible Bilt Cash (4% Back + Unlock)"]
     )
 
-    # Core Logic Setup
     total_everyday = dining + groceries + travel + other
-    spend_to_rent_ratio = (total_everyday / rent_mortgage) if rent_mortgage > 0 else 0
-
-    # Card Data Definitions
     cards = {
-        "Bilt Blue": {"fee": 0, "d_mult": 1, "g_mult": 1, "t_mult": 1, "o_mult": 1},
-        "Bilt Obsidian": {"fee": 95, "d_mult": 3, "g_mult": 3, "t_mult": 2, "o_mult": 1},
-        "Bilt Palladium": {"fee": 495, "d_mult": 2, "g_mult": 2, "t_mult": 2, "o_mult": 2}
+        "Bilt Blue": {"fee": 0, "d": 1, "g": 1, "t": 1, "o": 1},
+        "Bilt Obsidian": {"fee": 95, "d": 3, "g": 3, "t": 2, "o": 1},
+        "Bilt Palladium": {"fee": 495, "d": 2, "g": 2, "t": 2, "o": 2}
     }
 
     cols = st.columns(3)
 
-    for i, (card_name, specs) in enumerate(cards.items()):
+    for i, (name, specs) in enumerate(cards.items()):
         with cols[i]:
-            st.subheader(card_name)
+            st.markdown(f"### {name}")
             
-            # 1. Calculate Base Points from Spending
-            if card_name == "Bilt Obsidian":
-                g_pts = min(groceries, 2083) * specs['g_mult'] + max(0, groceries - 2083) * 1
-                spend_pts = (dining * specs['d_mult']) + g_pts + (travel * specs['t_mult']) + (other * specs['o_mult'])
+            # 1. Base Points from Spending
+            if name == "Bilt Obsidian":
+                g_pts = min(groceries, 2083) * specs['g'] + max(0, groceries - 2083) * 1
+                spend_pts = (dining * specs['d']) + g_pts + (travel * specs['t']) + (other * specs['o'])
             else:
-                spend_pts = (dining * specs['d_mult']) + (groceries * specs['g_mult']) + (travel * specs['t_mult']) + (other * specs['o_mult'])
+                spend_pts = (dining * specs['d']) + (groceries * specs['g']) + (travel * specs['t']) + (other * specs['o'])
 
-            # 2. Strategy Logic
+            # 2. Strategy Calculation
             if reward_strategy == "Housing-only (Tiered Points)":
-                if spend_to_rent_ratio >= 1.0: h_mult = 1.25
-                elif spend_to_rent_ratio >= 0.75: h_mult = 1.0
-                elif spend_to_rent_ratio >= 0.50: h_mult = 0.75
-                elif spend_to_rent_ratio >= 0.25: h_mult = 0.50
-                else: h_mult = 0.0
-                
-                housing_pts = rent_mortgage * h_mult
+                ratio = total_everyday / rent if rent > 0 else 0
+                h_mult = 1.25 if ratio >= 1.0 else 1.0 if ratio >= 0.75 else 0.75 if ratio >= 0.50 else 0.50 if ratio >= 0.25 else 0.0
+                housing_pts = rent * h_mult
                 final_cash = 0
-                explanation = f"Housing Multiplier: {h_mult}x"
+                
+                st.metric("Total Monthly Points", f"{int(spend_pts + housing_pts):,}")
+                st.caption(f"Includes {int(housing_pts):,} pts from {h_mult}x multiplier")
 
             else:
-                # Flexible Bilt Cash Strategy
-                # You earn 4% Cash on ALL everyday spend
-                earned_cash = total_everyday * 0.04
+                # --- BEFORE CONVERSION ---
+                gross_cash = total_everyday * 0.04
                 
-                # Conversion: $30 Bilt Cash = 1,000 Points (Capped at 1x rent)
-                max_housing_pts_allowed = rent_mortgage * 1.0
-                cash_needed_for_max = (max_housing_pts_allowed / 1000) * 30
-                
-                if earned_cash >= cash_needed_for_max:
-                    housing_pts = max_housing_pts_allowed
-                    final_cash = earned_cash - cash_needed_for_max
-                    explanation = "Unlocked full 1x Rent Pts"
-                else:
-                    housing_pts = (earned_cash / 30) * 1000
-                    final_cash = 0
-                    explanation = f"Partial Unlock: {int(housing_pts)} pts"
+                # --- THE CONVERSION LOGIC ---
+                # Rule: $30 Bilt Cash = 1,000 Pts (capped at 1x rent)
+                cash_needed_for_max = (rent / 1000) * 30
+                cash_to_spend = min(gross_cash, cash_needed_for_max)
+                housing_pts_unlocked = (cash_to_spend / 30) * 1000
+                final_cash = gross_cash - cash_to_spend
 
-            total_monthly_pts = spend_pts + housing_pts
+                # --- DASHBOARD DISPLAY ---
+                st.metric("Total Monthly Points", f"{int(spend_pts + housing_pts_unlocked):,}")
+                st.metric("Final Bilt Cash Balance", f"${final_cash:,.2f}")
 
-            # Display Results
-            st.metric("Monthly Points", f"{int(total_monthly_pts):,}")
-            st.metric("Remaining Bilt Cash", f"${final_cash:,.2f}")
-            st.caption(explanation)
+                with st.expander("View Conversion Breakdown"):
+                    data = {
+                        "Metric": ["Spending Pts", "Bilt Cash Earned", "Bilt Cash Used", "Housing Pts Unlocked"],
+                        "Value": [f"{int(spend_pts):,}", f"${gross_cash:,.2f}", f"-${cash_to_spend:,.2f}", f"+{int(housing_pts_unlocked):,}"]
+                    }
+                    st.table(pd.DataFrame(data))
             
-            st.write("---")
-            st.write(f"**Annual Points:** {int(total_monthly_pts * 12):,}")
+            st.divider()
             st.write(f"**Annual Fee:** ${specs['fee']}")
-
-    st.info(f"Spending Ratio: {spend_to_rent_ratio:.1%} of housing cost.")
 
 if __name__ == "__main__":
     calculate_rewards()
